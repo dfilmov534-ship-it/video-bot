@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 # ══════════════════════════════════════
 # ⚠️ ВСТАВЬ СВОИ ТОКЕНЫ СЮДА ⚠️
 # ══════════════════════════════════════
-TELEGRAM_TOKEN = "8748484067:AAF-aN4d-xgzl9YpGBYgNX2JSWcWbatC0CQ"
-OPENAI_API_KEY = "key_c60c18ccc13c86eeeed65306e3d1b47fe28c8694e65304e63af9b7cc135d936fb7bd6ed5c7ff4793fc2e983255075e9ebade0c366743e4476ce45c25fb0521e6"
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 # ══════════════════════════════════════
 
 client = OpenAI(api_key=OPENAI_API_KEY)

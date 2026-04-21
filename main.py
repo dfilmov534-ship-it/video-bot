@@ -16,13 +16,6 @@ from telegram.ext import (
 from flask import Flask
 from threading import Thread
 
-# ─── Исправление для Python 3.10+ ───
-try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
 # ─── Логирование ───
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -40,7 +33,6 @@ USER_PROMPTS = {}
 ACTIVE_REQUESTS = {}
 
 
-# ── /start ──
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome = (
         "🎬 Привет! Я бот для создания видео!\n\n"
@@ -49,93 +41,69 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "и я создам его для тебя.\n\n"
         "💡 Советы:\n"
         "• Описывай подробно что должно быть в видео\n"
-        "• Укажи стиль (реалистичный, мультфильм, кинематографичный)\n"
+        "• Укажи стиль (реалистичный, мультфильм)\n"
         "• Опиши освещение, движение камеры\n\n"
         "📌 Пример описания:\n"
         "Красивый закат над океаном, волны бьются о берег, "
-        "кинематографичная съёмка, замедленное движение, 4K\n\n"
+        "кинематографичная съёмка, замедленное движение\n\n"
         "⏱ Генерация занимает 2-5 минут\n\n"
-        "📋 Команды:\n"
         "/start — Главное меню\n"
-        "/help — Помощь и советы"
+        "/help — Помощь"
     )
     await update.message.reply_text(welcome)
 
 
-# ── /help ──
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
-        "🆘 Помощь по использованию бота\n\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "📖 Как создать видео:\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "1. Отправь текстовое описание видео\n"
-        "2. Выбери длительность (5-60 секунд)\n"
+        "🆘 Помощь\n\n"
+        "1. Отправь описание видео\n"
+        "2. Выбери длительность\n"
         "3. Подожди 2-5 минут\n"
-        "4. Получи готовое видео!\n\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "🎯 Как написать хорошее описание:\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "1️⃣ Кто или что в кадре:\n"
-        "   Девушка, собака, космический корабль\n\n"
-        "2️⃣ Что происходит:\n"
-        "   Идёт по улице, летит над горами\n\n"
-        "3️⃣ Где это происходит:\n"
-        "   В лесу, на Марсе, под водой\n\n"
-        "4️⃣ Стиль видео:\n"
-        "   Реалистичный, аниме, кинематографичный\n\n"
-        "5️⃣ Камера и эффекты:\n"
-        "   Замедленная съёмка, вид с дрона, крупный план"
+        "4. Получи видео!\n\n"
+        "🎯 Советы по описанию:\n"
+        "• Кто/что в кадре\n"
+        "• Что происходит\n"
+        "• Где происходит\n"
+        "• Стиль и камера"
     )
     await update.message.reply_text(text)
 
 
-# ── Получение текста ──
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     prompt = update.message.text.strip()
 
     if len(prompt) > 1500:
-        await update.message.reply_text(
-            "❌ Слишком длинный текст!\n"
-            f"Ты написал {len(prompt)} символов.\n"
-            "Максимум: 1500 символов."
-        )
+        await update.message.reply_text("❌ Слишком длинный текст! Максимум 1500 символов.")
         return
 
     if user_id in ACTIVE_REQUESTS:
-        await update.message.reply_text(
-            "⏳ Подожди!\n"
-            "Твоё предыдущее видео ещё создаётся."
-        )
+        await update.message.reply_text("⏳ Подожди! Предыдущее видео ещё создаётся.")
         return
 
     USER_PROMPTS[user_id] = prompt
 
     keyboard = [
         [
-            InlineKeyboardButton("⚡ 5 секунд", callback_data="dur_5"),
-            InlineKeyboardButton("10 секунд", callback_data="dur_10"),
+            InlineKeyboardButton("⚡ 5 сек", callback_data="dur_5"),
+            InlineKeyboardButton("10 сек", callback_data="dur_10"),
         ],
         [
-            InlineKeyboardButton("20 секунд", callback_data="dur_20"),
-            InlineKeyboardButton("30 секунд", callback_data="dur_30"),
+            InlineKeyboardButton("20 сек", callback_data="dur_20"),
+            InlineKeyboardButton("30 сек", callback_data="dur_30"),
         ],
         [
-            InlineKeyboardButton("🎬 60 секунд", callback_data="dur_60"),
+            InlineKeyboardButton("🎬 60 сек", callback_data="dur_60"),
         ],
     ]
 
-    short_prompt = prompt[:200] + ("..." if len(prompt) > 200 else "")
-
+    short = prompt[:200] + ("..." if len(prompt) > 200 else "")
     await update.message.reply_text(
-        f"📝 Твоё описание:\n{short_prompt}\n\n"
-        "⏱ Выбери длительность видео:",
+        f"📝 Описание:\n{short}\n\n⏱ Выбери длительность:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
-# ── Генерация после выбора длительности ──
 async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -145,10 +113,7 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     prompt = USER_PROMPTS.get(user_id)
     if not prompt:
-        await query.edit_message_text(
-            "❌ Описание не найдено.\n"
-            "Отправь описание видео заново."
-        )
+        await query.edit_message_text("❌ Описание не найдено. Отправь заново.")
         return
 
     if user_id in ACTIVE_REQUESTS:
@@ -157,31 +122,25 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ACTIVE_REQUESTS[user_id] = True
 
     await query.edit_message_text(
-        f"🎬 Создаю видео ({duration} сек)...\n\n"
-        "⏳ Пожалуйста, подожди. Я отправлю видео "
-        "когда оно будет готово!"
+        f"🎬 Создаю видео ({duration} сек)...\n"
+        "⏳ Подожди, я отправлю когда будет готово!"
     )
 
     try:
-        video_url = await asyncio.to_thread(
-            generate_video_sora, prompt, duration
-        )
+        video_url = await asyncio.to_thread(generate_video_sora, prompt, duration)
 
         if not video_url:
-            await query.edit_message_text(
-                "❌ Не удалось создать видео.\n"
-                "Попробуй изменить описание."
-            )
+            await query.edit_message_text("❌ Не удалось создать видео.")
             return
 
-        await query.edit_message_text("📥 Скачиваю готовое видео...")
+        await query.edit_message_text("📥 Скачиваю видео...")
         video_data = req.get(video_url, timeout=300)
 
         if video_data.status_code != 200:
-            await query.edit_message_text("❌ Ошибка при скачивании видео.")
+            await query.edit_message_text("❌ Ошибка скачивания.")
             return
 
-        await query.edit_message_text("📤 Отправляю видео...")
+        await query.edit_message_text("📤 Отправляю...")
 
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp.write(video_data.content)
@@ -191,10 +150,7 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_video(
                 chat_id=query.message.chat_id,
                 video=vf,
-                caption=(
-                    f"✅ Видео готово! ({duration} сек)\n\n"
-                    f"📝 Описание:\n{prompt[:200]}"
-                ),
+                caption=f"✅ Видео готово! ({duration} сек)\n📝 {prompt[:200]}",
                 supports_streaming=True,
             )
 
@@ -203,16 +159,13 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Ошибка: {e}")
-        await query.edit_message_text(
-            f"❌ Произошла ошибка:\n{str(e)[:300]}\n\n"
-            "Попробуй позже или измени описание."
-        )
+        await query.edit_message_text(f"❌ Ошибка:\n{str(e)[:300]}")
     finally:
         ACTIVE_REQUESTS.pop(user_id, None)
         USER_PROMPTS.pop(user_id, None)
 
 
-def generate_video_sora(prompt: str, duration: int) -> str:
+def generate_video_sora(prompt, duration):
     response = client.images.generate(
         model="sora",
         prompt=prompt,
@@ -224,28 +177,41 @@ def generate_video_sora(prompt: str, duration: int) -> str:
     return response.data[0].url
 
 
-# ── Мини веб-сервер для Render ──
+# ── Веб-сервер для Render ──
 web_app = Flask(__name__)
 
 @web_app.route("/")
 def home():
-    return "Бот работает!"
+    return "Bot is running!"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port)
 
 
-# ── Запуск ──
-if __name__ == "__main__":
-    print("Бот запускается...")
-    Thread(target=run_web, daemon=True).start()
-
+# ── Асинхронный запуск бота ──
+async def run_bot():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CallbackQueryHandler(handle_duration, pattern=r"^dur_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    print("Бот работает!")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info("Бот работает!")
+
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    finally:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
+
+
+if __name__ == "__main__":
+    print("Бот запускается...")
+    Thread(target=run_web, daemon=True).start()
+    asyncio.run(run_bot())

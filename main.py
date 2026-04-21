@@ -41,15 +41,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Просто отправь мне описание видео, "
         "и я создам его для тебя.\n\n"
         "💡 Советы:\n"
-        "• Описывай подробно что должно быть в видео\n"
-        "• Укажи стиль (реалистичный, мультфильм)\n"
-        "• Опиши освещение, движение камеры\n\n"
+        "- Описывай подробно что должно быть в видео\n"
+        "- Укажи стиль (реалистичный, мультфильм)\n"
+        "- Опиши освещение, движение камеры\n\n"
         "📌 Пример описания:\n"
         "Красивый закат над океаном, волны бьются о берег, "
         "кинематографичная съёмка, замедленное движение\n\n"
-        "⏱ Генерация занимает 2-5 минут\n\n"
-        "/start — Главное меню\n"
-        "/help — Помощь"
+        "⏱ Генерация занимает 2-5 минут\n"
+        "💰 Стоимость: ~27 руб за видео\n\n"
+        "/start - Главное меню\n"
+        "/help - Помощь"
     )
     await update.message.reply_text(welcome)
 
@@ -62,10 +63,13 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3. Подожди 2-5 минут\n"
         "4. Получи видео!\n\n"
         "🎯 Советы по описанию:\n"
-        "• Кто/что в кадре\n"
-        "• Что происходит\n"
-        "• Где происходит\n"
-        "• Стиль и камера"
+        "- Кто или что в кадре\n"
+        "- Что происходит\n"
+        "- Где происходит\n"
+        "- Стиль и камера\n\n"
+        "📌 Пример:\n"
+        "Величественный орёл парит над горами "
+        "на закате, съёмка с дрона, замедленное движение"
     )
     await update.message.reply_text(text)
 
@@ -75,11 +79,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text.strip()
 
     if len(prompt) > 1500:
-        await update.message.reply_text("❌ Слишком длинный текст! Максимум 1500 символов.")
+        await update.message.reply_text(
+            "❌ Слишком длинный текст! Максимум 1500 символов."
+        )
         return
 
     if user_id in ACTIVE_REQUESTS:
-        await update.message.reply_text("⏳ Подожди! Предыдущее видео ещё создаётся.")
+        await update.message.reply_text(
+            "⏳ Подожди! Предыдущее видео ещё создаётся."
+        )
         return
 
     USER_PROMPTS[user_id] = prompt
@@ -100,7 +108,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     short = prompt[:200] + ("..." if len(prompt) > 200 else "")
     await update.message.reply_text(
-        f"📝 Описание:\n{short}\n\n⏱ Выбери длительность:",
+        "📝 Описание:\n" + short + "\n\n⏱ Выбери длительность:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -114,7 +122,9 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     prompt = USER_PROMPTS.get(user_id)
     if not prompt:
-        await query.edit_message_text("❌ Описание не найдено. Отправь заново.")
+        await query.edit_message_text(
+            "❌ Описание не найдено. Отправь заново."
+        )
         return
 
     if user_id in ACTIVE_REQUESTS:
@@ -123,27 +133,36 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ACTIVE_REQUESTS[user_id] = True
 
     await query.edit_message_text(
-        f"🎬 Создаю видео ({duration} сек)...\n"
-        "⏳ Подожди, я отправлю когда будет готово!"
+        "🎬 Создаю видео (" + str(duration) + " сек)...\n"
+        "⏳ Подожди, я отправлю когда будет готово!\n"
+        "Обычно это занимает 2-5 минут."
     )
 
     try:
-        video_url = await asyncio.to_thread(generate_video_sora, prompt, duration)
+        video_url = await asyncio.to_thread(
+            generate_video_sora, prompt, duration
+        )
 
         if not video_url:
-            await query.edit_message_text("❌ Не удалось создать видео.")
+            await query.edit_message_text(
+                "❌ Не удалось создать видео."
+            )
             return
 
         await query.edit_message_text("📥 Скачиваю видео...")
         video_data = req.get(video_url, timeout=300)
 
         if video_data.status_code != 200:
-            await query.edit_message_text("❌ Ошибка скачивания.")
+            await query.edit_message_text(
+                "❌ Ошибка скачивания."
+            )
             return
 
         await query.edit_message_text("📤 Отправляю...")
 
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(
+            suffix=".mp4", delete=False
+        ) as tmp:
             tmp.write(video_data.content)
             tmp_path = tmp.name
 
@@ -151,7 +170,12 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_video(
                 chat_id=query.message.chat_id,
                 video=vf,
-                caption=f"✅ Видео готово! ({duration} сек)\n📝 {prompt[:200]}",
+                caption=(
+                    "✅ Видео готово! ("
+                    + str(duration)
+                    + " сек)\n📝 "
+                    + prompt[:200]
+                ),
                 supports_streaming=True,
             )
 
@@ -159,16 +183,19 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.unlink(tmp_path)
 
     except Exception as e:
-        logger.error(f"Ошибка: {e}")
-        await query.edit_message_text(f"❌ Ошибка:\n{str(e)[:300]}")
+        logger.error("Error: %s", e)
+        await query.edit_message_text(
+            "❌ Ошибка:\n" + str(e)[:300]
+        )
     finally:
         ACTIVE_REQUESTS.pop(user_id, None)
         USER_PROMPTS.pop(user_id, None)
 
 
 def generate_video_sora(prompt, duration):
+    """Generate video using OpenAI Sora-2 via ProxyAPI"""
     response = client.images.generate(
-        model="sora",
+        model="sora-2",
         prompt=prompt,
         n=1,
         size="1080x1920",
@@ -180,9 +207,11 @@ def generate_video_sora(prompt, duration):
 
 web_app = Flask(__name__)
 
+
 @web_app.route("/")
 def home():
     return "Bot is running!"
+
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -193,12 +222,20 @@ async def run_bot():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CallbackQueryHandler(handle_duration, pattern=r"^dur_"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(
+        CallbackQueryHandler(handle_duration, pattern=r"^dur_")
+    )
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND, handle_text
+        )
+    )
 
     await app.initialize()
     await app.start()
-    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+    await app.updater.start_polling(
+        allowed_updates=Update.ALL_TYPES
+    )
     logger.info("Bot is running!")
 
     try:

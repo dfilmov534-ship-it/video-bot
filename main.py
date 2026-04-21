@@ -229,5 +229,36 @@ def main():
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
+# ── Мини веб-сервер для Render ──
+from flask import Flask
+from threading import Thread
+
+web_app = Flask(__name__)
+
+@web_app.route("/")
+def home():
+    return "✅ Video Bot is running!"
+
+def run_web():
+    port = int(os.environ.get("PORT", 10000))
+    web_app.run(host="0.0.0.0", port=port)
+
 if __name__ == "__main__":
-    main()
+    print("🤖 Бот запускается...")
+    
+    # Запускаем веб-сервер в отдельном потоке
+    Thread(target=run_web, daemon=True).start()
+    
+    # Запускаем бота
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(
+        CallbackQueryHandler(handle_duration, pattern=r"^dur_")
+    )
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)
+    )
+    print("✅ Бот работает!")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
+

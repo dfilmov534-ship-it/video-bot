@@ -93,7 +93,7 @@ def generate_video(prompt: str) -> str:
         
         if status in ("completed", "succeeded", "ready"):
             url = p_data.get("url") or p_data.get("video_url")
-            if "data" in p_data:
+            if "data" in p_data and len(p_data["data"]) > 0:
                 url = p_data["data"][0].get("url") or p_data["data"][0].get("video_url")
             if url:
                 return url
@@ -193,3 +193,4 @@ if __name__ == "__main__":
     check_available_models()  # Проверит модели при старте
     Thread(target=run_web, daemon=True).start()
     asyncio.run(run_bot())
+    

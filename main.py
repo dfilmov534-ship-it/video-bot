@@ -13,6 +13,8 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+from flask import Flask
+from threading import Thread
 
 # ─── Логирование ───
 logging.basicConfig(
@@ -21,12 +23,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ══════════════════════════════════════
-# ⚠️ ВСТАВЬ СВОИ ТОКЕНЫ СЮДА ⚠️
-# ══════════════════════════════════════
+# ─── Токены ───
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-# ══════════════════════════════════════
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -34,59 +33,93 @@ USER_PROMPTS = {}
 ACTIVE_REQUESTS = {}
 
 
-# ── /start ──
+# ══════════════════════════════
+#  Команда /start
+# ══════════════════════════════
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome = (
-        "🎬 *Привет! Я генерирую видео по описанию!*\n\n"
-        "📝 Отправь мне текст — описание видео\n"
-        "⏱ Максимум: 60 секунд\n\n"
-        "💡 *Пример:*\n"
-        "_A cat astronaut floating in space, "
-        "Earth visible through the helmet, "
-        "cinematic lighting, 4K_\n\n"
-        "🇬🇧 Пиши на английском для лучшего качества!\n\n"
-        "/start — начало\n"
-        "/help — советы"
+        "🎬 Привет! Я бот для создания видео!\n\n"
+        "📝 Как пользоваться:\n"
+        "Просто отправь мне описание видео, "
+        "и я создам его для тебя.\n\n"
+        "💡 Советы:\n"
+        "• Описывай подробно что должно быть в видео\n"
+        "• Укажи стиль (реалистичный, мультфильм, кинематографичный)\n"
+        "• Опиши освещение, движение камеры\n\n"
+        "📌 Пример описания:\n"
+        "Красивый закат над океаном, волны бьются о берег, "
+        "кинематографичная съёмка, замедленное движение, 4K\n\n"
+        "⏱ Генерация занимает 2-5 минут\n\n"
+        "📋 Команды:\n"
+        "/start — Главное меню\n"
+        "/help — Помощь и советы"
     )
-    await update.message.reply_text(welcome, parse_mode="Markdown")
+    await update.message.reply_text(welcome)
 
 
-# ── /help ──
+# ══════════════════════════════
+#  Команда /help
+# ══════════════════════════════
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
-        "🎯 *Как написать хороший промпт:*\n\n"
-        "1️⃣ *Кто/что в кадре:*\n"
-        "   _A young woman, a robot, a mountain_\n\n"
-        "2️⃣ *Что происходит:*\n"
-        "   _walking through, flying over, dancing_\n\n"
-        "3️⃣ *Где:*\n"
-        "   _in a forest, on Mars, underwater_\n\n"
-        "4️⃣ *Стиль:*\n"
-        "   _cinematic, anime, photorealistic, 4K_\n\n"
-        "5️⃣ *Камера:*\n"
-        "   _slow motion, drone shot, close-up_\n\n"
-        "📌 *Полный пример:*\n"
-        "_A majestic eagle soaring over mountains "
-        "during golden hour, cinematic drone shot, "
-        "slow motion, photorealistic, 4K_"
+        "🆘 Помощь по использованию бота\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "📖 Как создать видео:\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "1. Отправь текстовое описание видео\n"
+        "2. Выбери длительность (5-60 секунд)\n"
+        "3. Подожди 2-5 минут\n"
+        "4. Получи готовое видео!\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🎯 Как написать хорошее описание:\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "1️⃣ Кто или что в кадре:\n"
+        "   Девушка, собака, космический корабль, город\n\n"
+        "2️⃣ Что происходит:\n"
+        "   Идёт по улице, летит над горами, танцует\n\n"
+        "3️⃣ Где это происходит:\n"
+        "   В лесу, на Марсе, под водой, в городе\n\n"
+        "4️⃣ Стиль видео:\n"
+        "   Реалистичный, аниме, кинематографичный, 4K\n\n"
+        "5️⃣ Камера и эффекты:\n"
+        "   Замедленная съёмка, вид с дрона, крупный план\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "📌 Примеры описаний:\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🌅 Величественный орёл парит над заснеженными "
+        "горами на закате, кинематографичная съёмка с "
+        "дрона, замедленное движение\n\n"
+        "🌊 Дельфины выпрыгивают из воды в тропическом "
+        "океане, солнечные лучи пробиваются сквозь волны, "
+        "подводная съёмка\n\n"
+        "🏙 Ночной город будущего с неоновыми огнями, "
+        "летающие машины, дождь, отражения в лужах, "
+        "стиль киберпанк"
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(text)
 
 
-# ── Получение текста → выбор длительности ──
+# ══════════════════════════════
+#  Получение текста от пользователя
+# ══════════════════════════════
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     prompt = update.message.text.strip()
 
     if len(prompt) > 1500:
         await update.message.reply_text(
-            "❌ Слишком длинный текст. Максимум 1500 символов."
+            "❌ Слишком длинный текст!\n"
+            f"Ты написал {len(prompt)} символов.\n"
+            "Максимум: 1500 символов.\n"
+            "Сократи описание и попробуй снова."
         )
         return
 
     if user_id in ACTIVE_REQUESTS:
         await update.message.reply_text(
-            "⏳ Подожди, предыдущее видео ещё генерируется!"
+            "⏳ Подожди!\n"
+            "Твоё предыдущее видео ещё создаётся.\n"
+            "Дождись завершения."
         )
         return
 
@@ -94,28 +127,32 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [
-            InlineKeyboardButton("5 сек ⚡", callback_data="dur_5"),
-            InlineKeyboardButton("10 сек", callback_data="dur_10"),
+            InlineKeyboardButton("⚡ 5 секунд", callback_data="dur_5"),
+            InlineKeyboardButton("10 секунд", callback_data="dur_10"),
         ],
         [
-            InlineKeyboardButton("20 сек", callback_data="dur_20"),
-            InlineKeyboardButton("30 сек", callback_data="dur_30"),
+            InlineKeyboardButton("20 секунд", callback_data="dur_20"),
+            InlineKeyboardButton("30 секунд", callback_data="dur_30"),
         ],
         [
-            InlineKeyboardButton("60 сек 🎬", callback_data="dur_60"),
+            InlineKeyboardButton("🎬 60 секунд (1 минута)", callback_data="dur_60"),
         ],
     ]
 
+    short_prompt = prompt[:200] + ("..." if len(prompt) > 200 else "")
+
     await update.message.reply_text(
-        f"📝 *Промпт:*\n_{prompt[:200]}"
-        f"{'...' if len(prompt) > 200 else ''}_\n\n"
-        "⏱ Выбери длительность:",
+        f"📝 Твоё описание:\n{short_prompt}\n\n"
+        "⏱ Выбери длительность видео:\n\n"
+        "⚡ 5 сек — быстро, для проверки\n"
+        "🎬 60 сек — полное видео (дольше ждать)",
         reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown",
     )
 
 
-# ── Генерация после выбора длительности ──
+# ══════════════════════════════
+#  Обработка выбора длительности
+# ══════════════════════════════
 async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -126,7 +163,8 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = USER_PROMPTS.get(user_id)
     if not prompt:
         await query.edit_message_text(
-            "❌ Промпт не найден. Отправь описание заново."
+            "❌ Описание не найдено.\n"
+            "Отправь описание видео заново."
         )
         return
 
@@ -135,34 +173,41 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ACTIVE_REQUESTS[user_id] = True
 
+    wait_min = max(duration * 3, 30)
+    wait_max = max(duration * 6, 120)
+
     await query.edit_message_text(
-        f"🎬 Генерирую видео ({duration} сек)...\n"
-        f"⏱ Ожидание: ~{max(duration * 3, 30)}-"
-        f"{max(duration * 6, 120)} сек\n\n"
-        f"Промпт: _{prompt[:150]}_",
-        parse_mode="Markdown",
+        f"🎬 Создаю видео ({duration} сек)...\n\n"
+        f"⏱ Примерное время ожидания: "
+        f"{wait_min}-{wait_max} секунд\n\n"
+        f"📝 Описание: {prompt[:150]}...\n\n"
+        "⏳ Пожалуйста, подожди. Я отправлю видео "
+        "когда оно будет готово!"
     )
 
     try:
-        # Генерация через Sora
         video_url = await asyncio.to_thread(
             generate_video_sora, prompt, duration
         )
 
         if not video_url:
             await query.edit_message_text(
-                "❌ Ошибка генерации. Попробуй другой промпт."
+                "❌ Не удалось создать видео.\n"
+                "Попробуй изменить описание и отправить снова."
             )
             return
 
-        await query.edit_message_text("📥 Скачиваю видео...")
+        await query.edit_message_text("📥 Скачиваю готовое видео...")
         video_data = req.get(video_url, timeout=300)
 
         if video_data.status_code != 200:
-            await query.edit_message_text("❌ Ошибка скачивания.")
+            await query.edit_message_text(
+                "❌ Ошибка при скачивании видео.\n"
+                "Попробуй ещё раз."
+            )
             return
 
-        await query.edit_message_text("📤 Отправляю...")
+        await query.edit_message_text("📤 Отправляю видео...")
 
         with tempfile.NamedTemporaryFile(
             suffix=".mp4", delete=False
@@ -175,10 +220,9 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=query.message.chat_id,
                 video=vf,
                 caption=(
-                    f"🎬 Видео ({duration} сек)\n"
-                    f"📝 _{prompt[:200]}_"
+                    f"✅ Видео готово! ({duration} сек)\n\n"
+                    f"📝 Описание:\n{prompt[:200]}"
                 ),
-                parse_mode="Markdown",
                 supports_streaming=True,
             )
 
@@ -187,9 +231,10 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Ошибка: {e}")
+        error_text = str(e)[:300]
         await query.edit_message_text(
-            f"❌ Ошибка:\n`{str(e)[:300]}`",
-            parse_mode="Markdown",
+            f"❌ Произошла ошибка:\n{error_text}\n\n"
+            "Попробуй позже или измени описание."
         )
     finally:
         ACTIVE_REQUESTS.pop(user_id, None)
@@ -211,45 +256,28 @@ def generate_video_sora(prompt: str, duration: int) -> str:
     return response.data[0].url
 
 
-# ── Запуск ──
-def main():
-    print("🤖 Бот запускается...")
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(
-        CallbackQueryHandler(handle_duration, pattern=r"^dur_")
-    )
-    app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)
-    )
-
-    print("✅ Бот работает! Для остановки нажми Ctrl+C")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-# ── Мини веб-сервер для Render ──
-from flask import Flask
-from threading import Thread
-
+# ══════════════════════════════
+#  Мини веб-сервер для Render
+# ══════════════════════════════
 web_app = Flask(__name__)
 
 @web_app.route("/")
 def home():
-    return "✅ Video Bot is running!"
+    return "Бот работает!"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port)
 
+
+# ══════════════════════════════
+#  Запуск бота
+# ══════════════════════════════
 if __name__ == "__main__":
-    print("🤖 Бот запускается...")
-    
-    # Запускаем веб-сервер в отдельном потоке
+    print("Бот запускается...")
+
     Thread(target=run_web, daemon=True).start()
-    
-    # Запускаем бота
+
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
@@ -259,6 +287,5 @@ if __name__ == "__main__":
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)
     )
-    print("✅ Бот работает!")
+    print("Бот работает!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
-

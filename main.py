@@ -16,14 +16,12 @@ from telegram.ext import (
 from flask import Flask
 from threading import Thread
 
-# ─── Логирование ───
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-# ─── Токены ───
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
@@ -31,7 +29,6 @@ client = OpenAI(
     api_key=OPENAI_API_KEY,
     base_url="https://api.proxyapi.ru/openai/v1"
 )
-
 
 USER_PROMPTS = {}
 ACTIVE_REQUESTS = {}
@@ -181,7 +178,6 @@ def generate_video_sora(prompt, duration):
     return response.data[0].url
 
 
-# ── Веб-сервер для Render ──
 web_app = Flask(__name__)
 
 @web_app.route("/")
@@ -193,7 +189,6 @@ def run_web():
     web_app.run(host="0.0.0.0", port=port)
 
 
-# ── Асинхронный запуск бота ──
 async def run_bot():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -204,7 +199,7 @@ async def run_bot():
     await app.initialize()
     await app.start()
     await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-    logger.info("Бот работает!")
+    logger.info("Bot is running!")
 
     try:
         while True:
@@ -216,6 +211,6 @@ async def run_bot():
 
 
 if __name__ == "__main__":
-    print("Бот запускается...")
+    print("Bot starting...")
     Thread(target=run_web, daemon=True).start()
     asyncio.run(run_bot())

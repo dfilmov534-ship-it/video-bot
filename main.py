@@ -2,8 +2,9 @@ import os
 import logging
 import tempfile
 import asyncio
+import json
+import time
 import requests as req
-from openai import OpenAI
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -24,11 +25,7 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-
-client = OpenAI(
-    api_key=OPENAI_API_KEY,
-    base_url="https://api.proxyapi.ru/openai/v1"
-)
+PROXY_BASE = "https://api.proxyapi.ru/openai/v1"
 
 USER_PROMPTS = {}
 ACTIVE_REQUESTS = {}
@@ -66,10 +63,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- Кто или что в кадре\n"
         "- Что происходит\n"
         "- Где происходит\n"
-        "- Стиль и камера\n\n"
-        "📌 Пример:\n"
-        "Величественный орёл парит над горами "
-        "на закате, съёмка с дрона, замедленное движение"
+        "- Стиль и камера"
     )
     await update.message.reply_text(text)
 
@@ -99,10 +93,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton("20 сек", callback_data="dur_20"),
-            InlineKeyboardButton("30 сек", callback_data="dur_30"),
-        ],
-        [
-            InlineKeyboardButton("🎬 60 сек", callback_data="dur_60"),
         ],
     ]
 
@@ -134,13 +124,13 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.edit_message_text(
         "🎬 Создаю видео (" + str(duration) + " сек)...\n"
-        "⏳ Подожди, я отправлю когда будет готово!\n"
-        "Обычно это занимает 2-5 минут."
+        "⏳ Подожди 2-5 минут!\n"
+        "Я отправлю когда будет готово."
     )
 
     try:
         video_url = await asyncio.to_thread(
-            generate_video_sora, prompt, duration
+            generate_video, prompt, duration
         )
 
         if not video_url:
@@ -185,24 +175,114 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error("Error: %s", e)
         await query.edit_message_text(
-            "❌ Ошибка:\n" + str(e)[:300]
+            "❌ Ошибка:\n" + str(e)[:500]
         )
     finally:
         ACTIVE_REQUESTS.pop(user_id, None)
         USER_PROMPTS.pop(user_id, None)
 
 
-def generate_video_sora(prompt, duration):
-    """Generate video using OpenAI Sora-2 via ProxyAPI"""
-    response = client.images.generate(
-        model="sora-2",
-        prompt=prompt,
-        n=1,
-        size="1080x1920",
-        response_format="url",
-        extra_body={"duration": duration},
+def generate_video(prompt, duration):
+    """Generate video via ProxyAPI using direct HTTP"""
+    headers = {
+        "Authorization": "Bearer " + OPENAI_API_KEY,
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "model": "sora-2",
+        "prompt": prompt,
+        "n": 1,
+        "size": "720x1280",
+        "duration": duration,
+    }
+
+    logger.info("Sending request to ProxyAPI...")
+    logger.info("Payload: %s", json.dumps(payload))
+
+    # Try images endpoint
+    resp = req.post(
+        PROXY_BASE + "/images/generations",
+        json=payload,
+        headers=headers,
+        timeout=600,
     )
-    return response.data[0].url
+
+    logger.info("Response status: %s", resp.status_code)
+    logger.info("Response: %s", resp.text[:1000])
+
+    # If images endpoint fails, try videos endpoint
+    if resp.status_code != 200:
+        logger.info("Trying /videos/generations endpoint...")
+        payload2 = {
+            "model": "sora-2",
+            "prompt": prompt,
+            "size": "720x1280",
+            "duration": duration,
+        }
+        resp = req.post(
+            PROXY_BASE + "/videos/generations",
+            json=payload2,
+            headers=headers,
+            timeout=600,
+        )
+        logger.info("Videos endpoint status: %s", resp.status_code)
+        logger.info("Videos response: %s", resp.text[:1000])
+
+    if resp.status_code != 200:
+        raise Exception(
+            "API error " + str(resp.status_code)
+            + ": " + resp.text[:300]
+        )
+
+    data = resp.json()
+
+    # Try different response formats
+    if "data" in data and len(data["data"]) > 0:
+        item = data["data"][0]
+        if "url" in item:
+            return item["url"]
+        if "video" in item:
+            return item["video"]
+        if "b64_json" in item:
+            return item["b64_json"]
+
+    # If response has direct url
+    if "url" in data:
+        return data["url"]
+    if "video" in data:
+        return data["video"]
+    if "output" in data:
+        return data["output"]
+
+    # If async task - poll for result
+    if "id" in data:
+        return poll_for_result(data["id"], headers)
+
+    raise Exception("Unknown response format: " + resp.text[:300])
+
+
+def poll_for_result(task_id, headers):
+    """Poll for async task completion"""
+    logger.info("Polling for task: %s", task_id)
+    for i in range(120):
+        time.sleep(5)
+        resp = req.get(
+            PROXY_BASE + "/videos/generations/" + str(task_id),
+            headers=headers,
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            status = data.get("status", "")
+            if status in ("completed", "succeeded", "complete"):
+                if "data" in data and len(data["data"]) > 0:
+                    return data["data"][0].get("url", "")
+                return data.get("url", data.get("output", ""))
+            if status in ("failed", "error"):
+                raise Exception("Generation failed: " + resp.text[:200])
+        logger.info("Poll %d: status=%s", i, resp.status_code)
+    raise Exception("Timeout: generation took too long")
 
 
 web_app = Flask(__name__)

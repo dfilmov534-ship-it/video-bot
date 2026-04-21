@@ -302,3 +302,67 @@ if __name__ == "__main__":
     check_available_models()  # Проверяем модели при старте
     Thread(target=run_web, daemon=True).start()
     asyncio.run(run_bot())
+# В КОНЕЦ файла добавь эти функции ПЕРЕД if __name__ == "__main__":
+
+async def setup_webhook(app):
+    """Настройка webhook для Render"""
+    webhook_url = os.environ.get("WEBHOOK_URL", "")
+    if webhook_url:
+        await app.bot.set_webhook(
+            url=webhook_url + "/webhook/" + TELEGRAM_TOKEN,
+            allowed_updates=Update.ALL_TYPES,
+        )
+        logger.info("Webhook установлен: " + webhook_url)
+    else:
+        logger.warning("WEBHOOK_URL не задан, используем polling")
+
+@web_app.route("/webhook/" + TELEGRAM_TOKEN, methods=["POST"])
+async def webhook_handler():
+    """Обработчик webhook"""
+    update = Update.de_json(await request.get_json(), app.bot)
+    await app.process_update(update)
+    return "ok"
+
+# Замени блок if __name__ == "__main__" на:
+
+if __name__ == "__main__":
+    print("Bot starting...")
+    check_models()
+    
+    # Создаём приложение
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    
+    # Запускаем веб-сервер
+    Thread(target=run_web, daemon=True).start()
+    
+    # Инициализация
+    asyncio.run(app.initialize())
+    asyncio.run(app.start())
+    
+    # Пробуем webhook, если не вышло — polling
+    try:
+        webhook_url = os.environ.get("WEBHOOK_URL")
+        if webhook_url:
+            asyncio.run(setup_webhook(app))
+            logger.info("Bot running with webhook!")
+            # Держим процесс живым
+            while True:
+                time.sleep(3600)
+        else:
+            # Fallback на polling
+            asyncio.run(app.updater.start_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True,
+            ))
+            logger.info("Bot running with polling!")
+            while True:
+                time.sleep(3600)
+    except Exception as e:
+        logger.error("Error: " + str(e))
+        asyncio.run(app.updater.start_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+        ))

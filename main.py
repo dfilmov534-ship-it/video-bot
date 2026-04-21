@@ -31,6 +31,22 @@ USER_PROMPTS = {}
 ACTIVE_REQUESTS = {}
 
 
+def check_models():
+    """Проверить доступные модели"""
+    headers = {
+        "Authorization": "Bearer " + OPENAI_API_KEY,
+    }
+    try:
+        resp = req.get(
+            PROXY_BASE + "/models",
+            headers=headers,
+            timeout=30,
+        )
+        logger.info("Available models: " + resp.text[:3000])
+    except Exception as e:
+        logger.error("Models check error: " + str(e))
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome = (
         "🎬 Привет! Я бот для создания видео!\n\n"
@@ -132,89 +148,105 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def generate_video(prompt):
-    """Try multiple request formats to find the right one"""
+    """Генерация видео через Sora API"""
     headers = {
         "Authorization": "Bearer " + OPENAI_API_KEY,
         "Content-Type": "application/json",
     }
 
-    url = PROXY_BASE + "/images/generations"
+    # Эндпоинт для видео, НЕ для картинок
+    url = PROXY_BASE + "/videos/generations"
 
-    attempts = [
-        {
-            "model": "sora-2",
-            "prompt": prompt,
-        },
-        {
-            "model": "sora-2",
-            "prompt": prompt,
-            "response_format": "url",
-        },
-        {
-            "model": "sora-2",
-            "prompt": prompt,
-            "size": "1280x720",
-            "response_format": "url",
-        },
-        {
-            "model": "sora-2",
-            "prompt": prompt,
-            "n": 1,
-            "size": "1280x720",
-        },
-        {
-            "model": "sora-2",
-            "prompt": prompt,
-            "n": 1,
-            "size": "1920x1080",
-            "response_format": "url",
-        },
-        {
-            "model": "sora-2",
-            "prompt": prompt,
-            "quality": "standard",
-            "size": "1280x720",
-            "n": 1,
-            "response_format": "url",
-        },
-    ]
+    payload = {
+        "model": "sora",
+        "prompt": prompt,
+        "size": "1920x1080",
+        "n": 1,
+    }
 
-    for i, payload in enumerate(attempts):
-        num = str(i + 1)
-        logger.info(
-            "Attempt " + num + ": "
-            + json.dumps(payload, ensure_ascii=False)[:300]
+    logger.info(
+        "Sending video request: "
+        + json.dumps(payload, ensure_ascii=False)[:300]
+    )
+
+    resp = req.post(
+        url,
+        json=payload,
+        headers=headers,
+        timeout=60,
+    )
+
+    logger.info(
+        "Response status: " + str(resp.status_code)
+        + " body: " + resp.text[:1000]
+    )
+
+    if resp.status_code not in (200, 201):
+        raise Exception(
+            "API error " + str(resp.status_code)
+            + ": " + resp.text[:500]
         )
-        try:
-            resp = req.post(
-                url,
-                json=payload,
-                headers=headers,
-                timeout=600,
-            )
-            logger.info(
-                "Attempt " + num
-                + " status: " + str(resp.status_code)
-                + " response: " + resp.text[:500]
-            )
 
-            if resp.status_code == 200:
-                data = resp.json()
-                video_url = extract_url(data)
-                if video_url:
-                    logger.info(
-                        "SUCCESS with attempt " + num
-                    )
-                    return video_url
-        except Exception as e:
-            logger.error(
-                "Attempt " + num + " error: " + str(e)
-            )
+    data = resp.json()
+
+    # Если сразу вернулся URL
+    video_url = extract_url(data)
+    if video_url:
+        return video_url
+
+    # Если вернулся ID задачи — поллим результат
+    generation_id = data.get("id")
+    if not generation_id:
+        raise Exception(
+            "No video URL and no generation ID in response: "
+            + str(data)[:500]
+        )
+
+    logger.info(
+        "Got generation ID: " + generation_id
+        + ", polling for result..."
+    )
+
+    poll_url = PROXY_BASE + "/videos/generations/" + generation_id
+
+    for attempt in range(60):  # макс ~5 минут
+        time.sleep(5)
+
+        poll_resp = req.get(
+            poll_url,
+            headers=headers,
+            timeout=30,
+        )
+
+        logger.info(
+            "Poll attempt " + str(attempt + 1)
+            + " status: " + str(poll_resp.status_code)
+            + " body: " + poll_resp.text[:500]
+        )
+
+        if poll_resp.status_code != 200:
             continue
 
+        poll_data = poll_resp.json()
+        status = poll_data.get("status", "")
+
+        if status == "failed":
+            raise Exception(
+                "Video generation failed: "
+                + str(poll_data)[:500]
+            )
+
+        if status == "completed":
+            video_url = extract_url(poll_data)
+            if video_url:
+                return video_url
+            raise Exception(
+                "Completed but no URL: "
+                + str(poll_data)[:500]
+            )
+
     raise Exception(
-        "All 6 format attempts failed. "
-        "Check Render logs for details."
+        "Timeout: video not ready after 5 minutes"
     )
 
 
@@ -266,7 +298,8 @@ async def run_bot():
     await app.initialize()
     await app.start()
     await app.updater.start_polling(
-        allowed_updates=Update.ALL_TYPES
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,  # игнорировать старые сообщения
     )
     logger.info("Bot is running!")
 
@@ -281,5 +314,6 @@ async def run_bot():
 
 if __name__ == "__main__":
     print("Bot starting...")
+    check_models()  # проверяем доступные модели
     Thread(target=run_web, daemon=True).start()
     asyncio.run(run_bot())

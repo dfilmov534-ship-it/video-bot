@@ -16,6 +16,13 @@ from telegram.ext import (
 from flask import Flask
 from threading import Thread
 
+# ─── Исправление для Python 3.10+ ───
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
 # ─── Логирование ───
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -33,9 +40,7 @@ USER_PROMPTS = {}
 ACTIVE_REQUESTS = {}
 
 
-# ══════════════════════════════
-#  Команда /start
-# ══════════════════════════════
+# ── /start ──
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome = (
         "🎬 Привет! Я бот для создания видео!\n\n"
@@ -57,9 +62,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome)
 
 
-# ══════════════════════════════
-#  Команда /help
-# ══════════════════════════════
+# ── /help ──
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "🆘 Помощь по использованию бота\n\n"
@@ -74,34 +77,20 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎯 Как написать хорошее описание:\n"
         "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "1️⃣ Кто или что в кадре:\n"
-        "   Девушка, собака, космический корабль, город\n\n"
+        "   Девушка, собака, космический корабль\n\n"
         "2️⃣ Что происходит:\n"
-        "   Идёт по улице, летит над горами, танцует\n\n"
+        "   Идёт по улице, летит над горами\n\n"
         "3️⃣ Где это происходит:\n"
-        "   В лесу, на Марсе, под водой, в городе\n\n"
+        "   В лесу, на Марсе, под водой\n\n"
         "4️⃣ Стиль видео:\n"
-        "   Реалистичный, аниме, кинематографичный, 4K\n\n"
+        "   Реалистичный, аниме, кинематографичный\n\n"
         "5️⃣ Камера и эффекты:\n"
-        "   Замедленная съёмка, вид с дрона, крупный план\n\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "📌 Примеры описаний:\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "🌅 Величественный орёл парит над заснеженными "
-        "горами на закате, кинематографичная съёмка с "
-        "дрона, замедленное движение\n\n"
-        "🌊 Дельфины выпрыгивают из воды в тропическом "
-        "океане, солнечные лучи пробиваются сквозь волны, "
-        "подводная съёмка\n\n"
-        "🏙 Ночной город будущего с неоновыми огнями, "
-        "летающие машины, дождь, отражения в лужах, "
-        "стиль киберпанк"
+        "   Замедленная съёмка, вид с дрона, крупный план"
     )
     await update.message.reply_text(text)
 
 
-# ══════════════════════════════
-#  Получение текста от пользователя
-# ══════════════════════════════
+# ── Получение текста ──
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     prompt = update.message.text.strip()
@@ -110,16 +99,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "❌ Слишком длинный текст!\n"
             f"Ты написал {len(prompt)} символов.\n"
-            "Максимум: 1500 символов.\n"
-            "Сократи описание и попробуй снова."
+            "Максимум: 1500 символов."
         )
         return
 
     if user_id in ACTIVE_REQUESTS:
         await update.message.reply_text(
             "⏳ Подожди!\n"
-            "Твоё предыдущее видео ещё создаётся.\n"
-            "Дождись завершения."
+            "Твоё предыдущее видео ещё создаётся."
         )
         return
 
@@ -135,7 +122,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("30 секунд", callback_data="dur_30"),
         ],
         [
-            InlineKeyboardButton("🎬 60 секунд (1 минута)", callback_data="dur_60"),
+            InlineKeyboardButton("🎬 60 секунд", callback_data="dur_60"),
         ],
     ]
 
@@ -143,16 +130,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"📝 Твоё описание:\n{short_prompt}\n\n"
-        "⏱ Выбери длительность видео:\n\n"
-        "⚡ 5 сек — быстро, для проверки\n"
-        "🎬 60 сек — полное видео (дольше ждать)",
+        "⏱ Выбери длительность видео:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
-# ══════════════════════════════
-#  Обработка выбора длительности
-# ══════════════════════════════
+# ── Генерация после выбора длительности ──
 async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -173,14 +156,8 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ACTIVE_REQUESTS[user_id] = True
 
-    wait_min = max(duration * 3, 30)
-    wait_max = max(duration * 6, 120)
-
     await query.edit_message_text(
         f"🎬 Создаю видео ({duration} сек)...\n\n"
-        f"⏱ Примерное время ожидания: "
-        f"{wait_min}-{wait_max} секунд\n\n"
-        f"📝 Описание: {prompt[:150]}...\n\n"
         "⏳ Пожалуйста, подожди. Я отправлю видео "
         "когда оно будет готово!"
     )
@@ -193,7 +170,7 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not video_url:
             await query.edit_message_text(
                 "❌ Не удалось создать видео.\n"
-                "Попробуй изменить описание и отправить снова."
+                "Попробуй изменить описание."
             )
             return
 
@@ -201,17 +178,12 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
         video_data = req.get(video_url, timeout=300)
 
         if video_data.status_code != 200:
-            await query.edit_message_text(
-                "❌ Ошибка при скачивании видео.\n"
-                "Попробуй ещё раз."
-            )
+            await query.edit_message_text("❌ Ошибка при скачивании видео.")
             return
 
         await query.edit_message_text("📤 Отправляю видео...")
 
-        with tempfile.NamedTemporaryFile(
-            suffix=".mp4", delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp.write(video_data.content)
             tmp_path = tmp.name
 
@@ -231,9 +203,8 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Ошибка: {e}")
-        error_text = str(e)[:300]
         await query.edit_message_text(
-            f"❌ Произошла ошибка:\n{error_text}\n\n"
+            f"❌ Произошла ошибка:\n{str(e)[:300]}\n\n"
             "Попробуй позже или измени описание."
         )
     finally:
@@ -242,23 +213,18 @@ async def handle_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def generate_video_sora(prompt: str, duration: int) -> str:
-    """Генерация видео через OpenAI Sora"""
     response = client.images.generate(
         model="sora",
         prompt=prompt,
         n=1,
         size="1080x1920",
         response_format="url",
-        extra_body={
-            "duration": duration,
-        },
+        extra_body={"duration": duration},
     )
     return response.data[0].url
 
 
-# ══════════════════════════════
-#  Мини веб-сервер для Render
-# ══════════════════════════════
+# ── Мини веб-сервер для Render ──
 web_app = Flask(__name__)
 
 @web_app.route("/")
@@ -270,22 +236,16 @@ def run_web():
     web_app.run(host="0.0.0.0", port=port)
 
 
-# ══════════════════════════════
-#  Запуск бота
-# ══════════════════════════════
+# ── Запуск ──
 if __name__ == "__main__":
     print("Бот запускается...")
-
     Thread(target=run_web, daemon=True).start()
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(
-        CallbackQueryHandler(handle_duration, pattern=r"^dur_")
-    )
-    app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)
-    )
+    app.add_handler(CallbackQueryHandler(handle_duration, pattern=r"^dur_"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
     print("Бот работает!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
